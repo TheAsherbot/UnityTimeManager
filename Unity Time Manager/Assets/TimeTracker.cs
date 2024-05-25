@@ -1,6 +1,4 @@
 using System;
-using System.Threading.Tasks;
-using System.Threading;
 using System.Runtime.InteropServices;
 
 using UnityEditor;
@@ -8,7 +6,9 @@ using UnityEditor;
 using UnityEngine;
 using System.IO;
 using UnityEditor.SceneManagement;
-//                    
+using Unity.EditorCoroutines.Editor;
+using System.Collections;
+//                      
 [InitializeOnLoad]
 public class TimeTracker
 {
@@ -246,40 +246,14 @@ public class TimeTracker
     static TimeTracker()
     {
         Debug.Log("TimeTracker");
-        CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
-        CancellationToken cancellationToken = cancellationTokenSource.Token;
-        
-        AssemblyReloadEvents.beforeAssemblyReload += () =>
+
+        SaveData saveData = Load();
+        // if (!saveData.isCurrentlyOpen)
         {
-            Debug.Log("beforeAssemblyReload");
-            // cancellationTokenSource.Cancel();
-        };
-        AssemblyReloadEvents.afterAssemblyReload += () =>
-        {
-            Debug.Log("afterAssemblyReload");
-        };
+            TimeTracker timeTracker = new TimeTracker();
 
-        Task task = Task.Run(async () =>
-        {
-            SaveData saveData = await Load();
-            // if (!saveData.isCurrentlyOpen)
-            {
-                TimeTracker timeTracker = new TimeTracker();
-
-                cancellationToken.ThrowIfCancellationRequested();
-
-                await timeTracker.Start();
-
-                while (!cancellationTokenSource.Token.IsCancellationRequested)
-                {
-                    Debug.Log("He");
-                    cancellationToken.ThrowIfCancellationRequested();
-                    timeTracker.Update();
-                    await Task.Delay(100);
-                }
-            }
-            return;
-        });
+            timeTracker.Start();
+        }
     }
 
 
@@ -326,7 +300,7 @@ public class TimeTracker
     }
 
 
-    public async Task Start()
+    public void Start()
     {
         EditorApplication.quitting += OnEditorClose;
 
@@ -346,7 +320,7 @@ public class TimeTracker
         // Try getting data
         if (Directory.Exists(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME))
         {
-            string fileData = await File.ReadAllTextAsync(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME);
+            string fileData = File.ReadAllText(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME);
             saveData = JsonUtility.FromJson<SaveData>(fileData);
             if (DateTime.Now.Date == saveData.lastUsedTime.Date)
             {
@@ -362,6 +336,18 @@ public class TimeTracker
         }
 
         Save(false);
+
+        EditorCoroutineUtility.StartCoroutineOwnerless(UpdateLoop());
+    }
+
+    private IEnumerator UpdateLoop()
+    {
+        while (true)
+        {
+            Debug.Log("Hello World! Coroutine");
+            Update();
+            yield return new EditorWaitForSeconds(1);
+        }
     }
 
     private void OnEditorClose()
@@ -408,9 +394,9 @@ public class TimeTracker
         File.WriteAllText(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME, JsonUtility.ToJson(saveData));
     }
 
-    private async static Task<SaveData> Load()
+    private static SaveData Load()
     {
-        string fileData = await File.ReadAllTextAsync(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME);
+        string fileData = File.ReadAllText(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME);
         return JsonUtility.FromJson<SaveData>(fileData);
     }
 
