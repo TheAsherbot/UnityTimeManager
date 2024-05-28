@@ -1,14 +1,20 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
+
+using Unity.EditorCoroutines.Editor;
 
 using UnityEditor;
+using UnityEditor.SceneManagement;
 
 using UnityEngine;
-using System.IO;
-using UnityEditor.SceneManagement;
-using Unity.EditorCoroutines.Editor;
-using System.Collections;
-//                      
+
+using Debug = UnityEngine.Debug;
+//  
 [InitializeOnLoad]
 public class TimeTracker
 {
@@ -45,6 +51,8 @@ public class TimeTracker
             return time48Bit;
         }
 
+        
+
 
         public static explicit operator Time48Bit(Time32Bit time32Bit)
         {
@@ -57,10 +65,10 @@ public class TimeTracker
 
             Time48Bit time48Bit = new Time48Bit();
             time48Bit.seconds = Convert.ToSByte(secondsMask & time32Bit.time);
-            time48Bit.minute = Convert.ToSByte((minutesMask & time32Bit.time) << 6);
-            time48Bit.hours = Convert.ToSByte((hoursMask & time32Bit.time) << 12);
-            time48Bit.days = Convert.ToUInt16((daysMask & time32Bit.time) << 17);
-            time48Bit.years = Convert.ToByte((yearsMask & time32Bit.time) << 26);
+            time48Bit.minute = Convert.ToSByte((minutesMask & time32Bit.time) >> 6);
+            time48Bit.hours = Convert.ToSByte((hoursMask & time32Bit.time) >> 12);
+            time48Bit.days = Convert.ToUInt16((daysMask & time32Bit.time) >> 17);
+            time48Bit.years = Convert.ToByte((yearsMask & time32Bit.time) >> 26);
 
             return time48Bit;
         }
@@ -159,26 +167,33 @@ public class TimeTracker
         public override string ToString()
         {
             string resalt = "";
+            string units = "";
             if (years != 0)
             {
-                resalt += years + " years  ";
+                resalt += "" + years + ":" + days + ":" + hours + ":" + minute + ":" + seconds;
+                units += "Y:D:H:M:S";
             }
-            if (days != 0)
+            else if (days != 0)
             {
-                resalt += days + " days  ";
+                resalt += "" + days + ":" + hours + ":" + minute + ":" + seconds;
+                units += "D:H:M:S";
             }
-            if (hours != 0)
+            else if(hours != 0)
             {
-                resalt += hours + " hours  ";
+                resalt += "" + hours + ":" + minute + ":" + seconds;
+                units += "H:M:S";
             }
-            if (minute != 0)
+            else if(minute != 0)
             {
-                resalt += minute + " minute  ";
+                resalt += "" + minute + ":" + seconds;
+                units += "M:S";
             }
-            if (seconds != 0)
+            else if(seconds != 0)
             {
-                resalt += seconds + " seconds  ";
+                resalt += "" + seconds;
+                units += "S";
             }
+            resalt += " " + units;
             return resalt;
         }
         public override int GetHashCode()
@@ -221,48 +236,503 @@ public class TimeTracker
         {
             Time32Bit time32Bit = new Time32Bit();
             time32Bit.time = 0;
-            time32Bit.time |= time48Bit.seconds >> 0;
-            time32Bit.time |= time48Bit.minute >> 6;
-            time32Bit.time |= time48Bit.hours >> 12;
-            time32Bit.time |= time48Bit.days >> 17;
-            time32Bit.time |= time48Bit.years >> 26;
+            time32Bit.time |= time48Bit.seconds << 0;
+            time32Bit.time |= time48Bit.minute << 6;
+            time32Bit.time |= time48Bit.hours << 12;
+            time32Bit.time |= time48Bit.days << 17;
+            time32Bit.time |= time48Bit.years << 26;
             
             return time32Bit;
         }
     }
 
+    private struct DateTime88Bit
+    {
+        // The only thing that is set is Day of Year, Year, Hour, Minute, Second, Millisecond, 
+
+        /// <summary>
+        /// 9 bits (0-8) to days in year. 23 bits (9-24) to years
+        /// </summary>
+        public uint Date
+        {
+            get
+            {
+                uint date = 0;
+                date |= (uint)(Day - 1) << 0;// 9 bits. day is Days - 1 in Year. I want 0-(Days in Year - 1)
+                date |= (uint)(Year - 1) << 9;     // 16 bits. day is - 1. I want 0-65535 (max number of Unsinged short)
+                return date;
+            }
+            set
+            {
+                // Make inline if needs more performance
+                int daysMask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8);
+                int yearMask = ~daysMask & ~((1 << 25) | (1 << 26) | (1 << 27) | (1 << 28) | (1 << 29) | (1 << 30) | (1 << 31));
+
+                Day = Convert.ToByte(value & daysMask);
+                Year = Convert.ToUInt16((value & yearMask) >> 9);
+            }
+        }
+        /// <summary>
+        /// 1-365 (includes leap years)
+        /// </summary>
+        public short Day
+        {
+            get;
+            set;
+        }
+        public ushort Year
+        {
+            get; 
+            private set;
+        }
+        public byte Month
+        {
+            get
+            {
+                short days = Day;
+                bool moreDaysLeft = true;
+                byte month = 0;
+                while (moreDaysLeft)
+                {
+                    switch (month)
+                    {
+                        case 0: // January
+                            if (days > 31)
+                            {
+                                days -= 31;
+                                break;
+                            }
+                            return month;
+                        case 1: // February
+                            if (days > ((Year % 4 == 0 && Year % 400 != 0) ? 29 : 28))
+                            {
+                                days -= (short)((Year % 4 == 0 && Year % 400 != 0) ? 29 : 28);
+                                break;
+                            }
+                            return month;
+                        case 2: // March
+                            if (days > 31)
+                            {
+                                days -= 31;
+                                break;
+                            }
+                            return month;
+                        case 3: // April
+                            if (days > 30)
+                            {
+                                days -= 30;
+                                break;
+                            }
+                            return month;
+                        case 4: // May
+                            if (days > 31)
+                            {
+                                days -= 31;
+                                break;
+                            }
+                            return month;
+                        case 5: // June
+                            if (days > 30)
+                            {
+                                days -= 30;
+                                break;
+                            }
+                            return month;
+                        case 6: // July
+                            if (days > 31)
+                            {
+                                days -= 31;
+                                break;
+                            }
+                            return month;
+                        case 7: // August
+                            if (days > 31)
+                            {
+                                days -= 31;
+                                break;
+                            }
+                            return month;
+                        case 8: // September
+                            if (days > 30)
+                            {
+                                days -= 30;
+                                break;
+                            }
+                            return month;
+                        case 9: // October
+                            if (days > 31)
+                            {
+                                days -= 31;
+                                break;
+                            }
+                            return month;
+                        case 10: // November
+                            if (days > 30)
+                            {
+                                days -= 30;
+                                break;
+                            }
+                            return month;
+                        case 11: // December
+                            if (days > 31)
+                            {
+                                days -= 31;
+                                break;
+                            }
+                            return month;
+                    }
+                    month++;
+                }
+                return month;
+            }
+        }
+        public byte DayOfMonth
+        {
+            get
+            {
+                short days = Day;
+                bool moreDaysLeft = true;
+                byte month = 0;
+                while (moreDaysLeft)
+                {
+                    switch (month)
+                    {
+                        case 0: // January
+                            if (days > 31)
+                            {
+                                days -= 31;
+                                break;
+                            }
+                            return Convert.ToByte(days);
+                        case 1: // February
+                            if (days > ((Year % 4 == 0 && Year % 400 != 0) ? 29 : 28))
+                            {
+                                days -= (short)((Year % 4 == 0 && Year % 400 != 0) ? 29 : 28);
+                                break;
+                            }
+                            return Convert.ToByte(days);
+                        case 2: // March
+                            if (days > 31)
+                            {
+                                days -= 31;
+                                break;
+                            }
+                            return Convert.ToByte(days);
+                        case 3: // April
+                            if (days > 30)
+                            {
+                                days -= 30;
+                                break;
+                            }
+                            return Convert.ToByte(days);
+                        case 4: // May
+                            if (days > 31)
+                            {
+                                days -= 31;
+                                break;
+                            }
+                            return Convert.ToByte(days);
+                        case 5: // June
+                            if (days > 30)
+                            {
+                                days -= 30;
+                                break;
+                            }
+                            return Convert.ToByte(days);
+                        case 6: // July
+                            if (days > 31)
+                            {
+                                days -= 31;
+                                break;
+                            }
+                            return Convert.ToByte(days);
+                        case 7: // August
+                            if (days > 31)
+                            {
+                                days -= 31;
+                                break;
+                            }
+                            return Convert.ToByte(days);
+                        case 8: // September
+                            if (days > 30)
+                            {
+                                days -= 30;
+                                break;
+                            }
+                            return Convert.ToByte(days);
+                        case 9: // October
+                            if (days > 31)
+                            {
+                                days -= 31;
+                                break;
+                            }
+                            return Convert.ToByte(days);
+                        case 10: // November
+                            if (days > 30)
+                            {
+                                days -= 30;
+                                break;
+                            }
+                            return Convert.ToByte(days);
+                        case 11: // December
+                            if (days > 31)
+                            {
+                                days -= 31;
+                                break;
+                            }
+                            return Convert.ToByte(days);
+                    }
+                    month++;
+                }
+                return Convert.ToByte(days);
+            }
+        }
+        /// <summary>
+        /// 5 bits (0-4) to hours. 6 bits (5-10) to minutes. 6 bits (11-16) to seconds. 10 bits (17-26) to milliseconds
+        /// </summary>
+        public uint TimeOfDay
+        {
+            get
+            {
+                uint timeOfDay = 0;
+                timeOfDay |= (uint)Hour << 0;
+                timeOfDay |= (uint)Minute << 5;
+                timeOfDay |= (uint)Second << 11;
+                timeOfDay |= (uint)Millisecond << 17;
+                return timeOfDay;
+            }
+            set
+            {
+                // Make inline if needs more performance
+                int hourMask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4);
+                int minuteMask = (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10);
+                int secondMask = (1 << 11) | (1 << 12) | (1 << 13) | (1 << 14) | (1 << 15) | (1 << 16);
+                int millisecondMask = ~hourMask & ~minuteMask & ~secondMask & ~((1 << 27) | (1 << 28) | (1 << 29) | (1 << 30) | (1 << 31));
+
+                Hour = Convert.ToByte(value & hourMask);
+                Minute = Convert.ToByte((value & minuteMask) >> 5);
+                Second = Convert.ToByte((value & secondMask) >> 11);
+                Millisecond = Convert.ToInt16((value & millisecondMask) >> 17);
+            }
+        }
+        public byte Hour
+        {
+            get;
+            set;
+        }
+        public byte Minute
+        {
+            get; 
+            set;
+        }
+        public byte Second
+        {
+            get; 
+            set;
+        }
+        public short Millisecond
+        {
+            get; 
+            set;
+        }
+
+
+
+
+        public string ToJson()
+        {
+            return $"{{\"Date\":{Date},\"TimeOfDay\":{TimeOfDay}}}";
+        }
+
+        public static DateTime88Bit FromJson(string json)
+        {
+            DateTime88Bit dateTime88Bit = new DateTime88Bit();
+            json = json.TrimStart('{').TrimEnd('}');
+            string[] values = json.Split(',');
+
+            dateTime88Bit.Date = Convert.ToUInt32(values[0].Split(':')[1]);
+            dateTime88Bit.TimeOfDay = Convert.ToUInt32(values[1].Split(':')[1]);
+
+            return dateTime88Bit;
+        }
+
+        private static DateTime88Bit Carry(DateTime88Bit dateTime88Bit)
+        {
+            while (dateTime88Bit.Millisecond >= 1000)
+            {
+                dateTime88Bit.Millisecond -= 1000;
+                dateTime88Bit.Second++;
+            }
+            while (dateTime88Bit.Millisecond < 0)
+            {
+                dateTime88Bit.Millisecond += 60;
+                dateTime88Bit.Second--;
+            }
+
+            while (dateTime88Bit.Second >= 60)
+            {
+                dateTime88Bit.Second -= 60;
+                dateTime88Bit.Minute++;
+            }
+            while (dateTime88Bit.Second > 118) // Wrapped back to 255
+            {
+                dateTime88Bit.Second += 60;
+                dateTime88Bit.Minute--;
+            }
+
+            while (dateTime88Bit.Minute >= 60)
+            {
+                dateTime88Bit.Minute -= 60;
+                dateTime88Bit.Hour++;
+            }
+            while (dateTime88Bit.Second > 118) // Wrapped back to 255
+            {
+                dateTime88Bit.Minute += 60;
+                dateTime88Bit.Hour--;
+            }
+
+            while (dateTime88Bit.Hour >= 24)
+            {
+                dateTime88Bit.Hour -= 24;
+                dateTime88Bit.Day++;
+            }
+            while (dateTime88Bit.Hour > 46) // Wrapped back to 255
+            {
+                dateTime88Bit.Hour += 24;
+                dateTime88Bit.Day--;
+            }
+
+            while (dateTime88Bit.Day >= 366)
+            {
+                dateTime88Bit.Day -= 365;
+                dateTime88Bit.Year++;
+            }
+            while (dateTime88Bit.Day < 0)
+            {
+                dateTime88Bit.Day += 365;
+                dateTime88Bit.Year--;
+            }
+
+            return dateTime88Bit;
+        }
+
+
+        public static explicit operator DateTime88Bit(DateTime dateTime)
+        {
+            DateTime88Bit dateTime448Bit = new DateTime88Bit();
+
+            // Month Day Year
+            dateTime448Bit.Day = Convert.ToByte(dateTime.DayOfYear);
+            dateTime448Bit.Hour = Convert.ToByte(dateTime.Hour);
+            dateTime448Bit.Millisecond = Convert.ToInt16(dateTime.Millisecond);
+            dateTime448Bit.Minute = Convert.ToByte(dateTime.Minute);
+            dateTime448Bit.Second = Convert.ToByte(dateTime.Second);
+            dateTime448Bit.Year = Convert.ToUInt16(dateTime.Year);
+
+
+            return dateTime448Bit;
+        }
+        public static explicit operator DateTime(DateTime88Bit dateTime448Bit)
+        {
+            DateTime dateTime = new DateTime(dateTime448Bit.Year + 1, dateTime448Bit.Month + 1, dateTime448Bit.DayOfMonth, dateTime448Bit.Hour, dateTime448Bit.Minute, dateTime448Bit.Second, 0 + Convert.ToInt32(dateTime448Bit.Millisecond));
+
+
+            return dateTime;
+        }
+        public static bool operator ==(DateTime88Bit a, DateTime88Bit b)
+        {
+            return a.Date == b.Date && a.TimeOfDay == b.TimeOfDay;
+        }
+        public static bool operator !=(DateTime88Bit a, DateTime88Bit b)
+        {
+            return !(a == b);
+        }
+        public static DateTime88Bit operator -(DateTime Minuend, DateTime88Bit Subtrahend)
+        {
+            DateTime88Bit dateTime88BitMinuend = (DateTime88Bit)Minuend;
+            dateTime88BitMinuend.Day--;
+            dateTime88BitMinuend.Year--;
+
+            dateTime88BitMinuend.Day -= Subtrahend.Day;
+            dateTime88BitMinuend.Year -= Subtrahend.Year;
+            dateTime88BitMinuend.Hour -= Subtrahend.Hour;
+            dateTime88BitMinuend.Minute -= Subtrahend.Minute;
+            dateTime88BitMinuend.Second -= Subtrahend.Second;
+
+            dateTime88BitMinuend = Carry(dateTime88BitMinuend);
+
+            return dateTime88BitMinuend;
+        }
+
+
+        public override string ToString()
+        {
+            string result = 
+                $"{{\n" +
+                $"    \"Day\": {Day},\n" +
+                $"    \"Year\": {Year},\n" +
+                $"    \"Hour\": {Hour},\n" +
+                $"    \"Minute\": {Minute},\n" +
+                $"    \"Second\": {Second},\n" +
+                $"    \"Millisecond\": {Millisecond},\n" +
+                $"}}";
+            return result;
+        }
+        public override int GetHashCode()
+        {
+            return (int)(TimeOfDay + Date);
+        }
+        public override bool Equals(object obj)
+        {
+            if (obj is DateTime88Bit time48Bit)
+            {
+                return time48Bit == this;
+            }
+            else if (obj is DateTime time32Bit)
+            {
+                return (DateTime88Bit)time32Bit == this;
+            }
+            return false;
+        }
+    }
+
+
     [Serializable]
     private struct SaveData
     {
-        public DateTime startTime;
+        public string startTime;
+        public Time32Bit elapsedSessionTime;
         public Time32Bit todaysElapsedTime;
         public Time32Bit totalElapsedTime;
-        public DateTime lastUsedTime;
-        public bool isCurrentlyOpen;
+        public string lastUsedTime;
+        public bool isFirstOpen;
     }
 
 
 
     static TimeTracker()
     {
-        Debug.Log("TimeTracker");
-
-        SaveData saveData = Load();
-        // if (!saveData.isCurrentlyOpen)
-        {
-            TimeTracker timeTracker = new TimeTracker();
-
-            timeTracker.Start();
-        }
+        TimeTracker timeTracker = new TimeTracker();
     }
 
 
+#if PLATFORM_STANDALONE_WIN
+    private delegate bool EnumWindowProc(IntPtr hwnd, IntPtr lParam);
 
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumWindows(EnumWindowProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
     // Import Functions  following.
     [DllImport("user32.dll", EntryPoint = "SetWindowText")]
     public static extern bool SetWindowText(IntPtr hwnd, string lpString);
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+#endif
+
 
 
     private static readonly string TIME_SPENT_FILE_PATH = Application.dataPath + '/';
@@ -271,10 +741,10 @@ public class TimeTracker
     {
         get
         {
-            return Application.productName + " - " + EditorSceneManager.GetActiveScene().name + " - Windows, Mac, Linux - Unity " + Application.unityVersion + EditorSceneManager.GetActiveScene().isDirty + " <DX11>";
+            return Application.productName + " - " + EditorSceneManager.GetActiveScene().name + " - Windows, Mac, Linux - Unity " + Application.unityVersion + (EditorSceneManager.GetActiveScene().isDirty ? '*' : "") + " <DX11>";
         }
     }
-    private IntPtr unityApplication;
+    private IntPtr unityApplicationHandle;
 
 
 
@@ -288,25 +758,16 @@ public class TimeTracker
     private Time48Bit todaysElapsedTime;
     private Time48Bit totalElapsedTime;
 
+    private SaveData saveData;
 
-    private byte updateAmount;
-
-
-    ~TimeTracker()
+    private TimeTracker()
     {
-        Save(false);
+        AssemblyReloadEvents.beforeAssemblyReload += () => Save();
+        EditorApplication.wantsToQuit += OnEditorClose;
 
-        EditorApplication.quitting -= OnEditorClose;
-    }
+        unityApplicationHandle = GetUnityWindowHandle();
+        
 
-
-    public void Start()
-    {
-        EditorApplication.quitting += OnEditorClose;
-
-        unityApplication = GetForegroundWindow();
-
-        Debug.Log("TEST!"); 
 
         startSessionDateTime = DateTime.Now;
         lastDatetime = DateTime.Now;
@@ -316,26 +777,34 @@ public class TimeTracker
         todaysElapsedTime = new Time48Bit();
         totalElapsedTime = new Time48Bit();
 
-        SaveData saveData = new SaveData(); 
+        saveData = new SaveData();
         // Try getting data
-        if (Directory.Exists(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME))
+        if (File.Exists(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME))
         {
-            string fileData = File.ReadAllText(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME);
-            saveData = JsonUtility.FromJson<SaveData>(fileData);
-            if (DateTime.Now.Date == saveData.lastUsedTime.Date)
+            saveData = Load();
+            DateTime88Bit lastUsedTime = DateTime88Bit.FromJson(saveData.lastUsedTime);
+            totalElapsedTime = (Time48Bit)saveData.totalElapsedTime;
+            if (DateTime.Now.Date == ((DateTime)lastUsedTime).Date)
             {
                 todaysElapsedTime = (Time48Bit)saveData.todaysElapsedTime;
+                DateTime88Bit differenceBetweenLastSessionAndThisOne = startSessionDateTime - lastUsedTime;
+                if (!saveData.isFirstOpen) // As long as there is only Addend difference of less then 1 minute, and 59 seconds seconds
+                {
+                    elapsedSessionTime = (Time48Bit)saveData.elapsedSessionTime;
+                    elapsedSessionTime.seconds += Convert.ToSByte(differenceBetweenLastSessionAndThisOne.Second);
+                    todaysElapsedTime.seconds += Convert.ToSByte(differenceBetweenLastSessionAndThisOne.Second);
+                    totalElapsedTime.seconds += Convert.ToSByte(differenceBetweenLastSessionAndThisOne.Second);
+                }
             }
-            totalElapsedTime = (Time48Bit)saveData.totalElapsedTime;
         }
         else
         {
-            saveData.startTime = startSessionDateTime;
-
-            File.WriteAllText(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME, JsonUtility.ToJson(saveData));
+            saveData.startTime = ((DateTime88Bit)startSessionDateTime).ToJson();
+            saveData.lastUsedTime = ((DateTime88Bit)startSessionDateTime).ToJson();
         }
 
-        Save(false);
+
+        Save();
 
         EditorCoroutineUtility.StartCoroutineOwnerless(UpdateLoop());
     }
@@ -344,18 +813,21 @@ public class TimeTracker
     {
         while (true)
         {
-            Debug.Log("Hello World! Coroutine");
             Update();
             yield return new EditorWaitForSeconds(1);
         }
     }
 
-    private void OnEditorClose()
+    private bool OnEditorClose()
     {
+        // EditorCoroutineUtility.StopCoroutine(updateLoopCoroutine);
+        
         Save(true);
+
+        return true;
     }
 
-    public void Update()
+    private void Update()
     {
         currentDatetime = DateTime.Now;
 
@@ -366,30 +838,26 @@ public class TimeTracker
 
         lastDatetime = currentDatetime;
 
-
-        updateAmount++;
-        if (updateAmount == byte.MaxValue)
-        {
-            updateAmount = 0;
-            Save(false);
-        }
+        Save();
 
         UpdateTitle(elapsedSessionTime.ToString(), todaysElapsedTime.ToString(), totalElapsedTime.ToString());
     }
 
     private void UpdateTitle(string elapsedSessionTime, string todaysElapsedTime, string totalElapsedTime)
     {
-        SetWindowText(unityApplication, /*BaseTitleName +*/ " Elapsed Session Time: " + elapsedSessionTime + " Todays Elapsed Time: " + todaysElapsedTime + " Total Elapsed Time: " + totalElapsedTime); 
+        // TO DO!!! Unity overrides what I have when the scene is switch from is dirty to is not dirty and the other way around.
+
+        SetWindowText(unityApplicationHandle, BaseTitleName + " Elapsed Session Time: " + elapsedSessionTime + " Todays Elapsed Time: " + todaysElapsedTime + " Total Elapsed Time: " + totalElapsedTime); 
     }
 
-    private void Save(bool isClosing)
+    private void Save(bool isFirstOpen = false)
     {
-        SaveData saveData = new SaveData();
-        saveData.startTime = startSessionDateTime;
+        saveData.startTime = ((DateTime88Bit)startSessionDateTime).ToJson();
+        saveData.elapsedSessionTime = (Time32Bit)elapsedSessionTime;
+        saveData.todaysElapsedTime = (Time32Bit)todaysElapsedTime;
         saveData.totalElapsedTime = (Time32Bit)totalElapsedTime;
-        saveData.todaysElapsedTime = (Time32Bit)totalElapsedTime;
-        saveData.lastUsedTime = currentDatetime;
-        saveData.isCurrentlyOpen = !isClosing;
+        saveData.lastUsedTime = ((DateTime88Bit)currentDatetime).ToJson();
+        saveData.isFirstOpen = isFirstOpen;
 
         File.WriteAllText(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME, JsonUtility.ToJson(saveData));
     }
@@ -399,141 +867,47 @@ public class TimeTracker
         string fileData = File.ReadAllText(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME);
         return JsonUtility.FromJson<SaveData>(fileData);
     }
-
-    private static void ConvertDaysToYear_Months_DayOfMonth(int days, out int year, out int month, out int dayOfTheMonth)
+#if PLATFORM_STANDALONE_WIN
+    private static IntPtr GetUnityWindowHandle()
     {
-        year = 0;
-        bool canAddMoreYears = true;
-        bool isCurrentYearLeapYear = false;
+        // TO DO: Bug at startup. The window has not opened so can not rename it...
+        Process process = Process.GetCurrentProcess();
 
-        int numberOfDaysLeftInYears = days;
-        int i = 0;
-        while (canAddMoreYears)
+
+        IEnumerable <IntPtr> windowHandles = GetAllWindowHandlesForProcess(process.Id); 
+
+        // Print each handle.
+        foreach (IntPtr handle in windowHandles)
         {
-            if (numberOfDaysLeftInYears > 365)
+            StringBuilder buffer = new StringBuilder(256);
+            GetWindowText(handle, buffer, buffer.Capacity);
+            if (buffer.ToString().Contains("Unity"))
             {
-                isCurrentYearLeapYear = false;
-                numberOfDaysLeftInYears -= 365;
-                i++;
-                year++;
-                if (i % 4 == 0 && i % 400 != 0) // Check for leap year
-                {
-                    numberOfDaysLeftInYears--;
-                    isCurrentYearLeapYear = true;
-                }// 
-            }
-            else
-            {
-                canAddMoreYears = false;
+                return handle;
             }
         }
 
-        numberOfDaysLeftInYears += isCurrentYearLeapYear ? 1: 0;
-        month = 0;
-        for (i = 0; i < 12; i++)
-        {
-            month = i;
-            switch (i)
-            {
-                case 0: // January
-                    if (numberOfDaysLeftInYears > 31)
-                    {
-                        numberOfDaysLeftInYears -= 31;
-                        continue;
-                    }
-                    dayOfTheMonth = numberOfDaysLeftInYears;
-                    return;
-                case 1: // February
-                    if (numberOfDaysLeftInYears > (isCurrentYearLeapYear ? 29 : 28))
-                    {
-                        numberOfDaysLeftInYears -= (isCurrentYearLeapYear ? 29 : 28);
-                        continue;
-                    }
-                    dayOfTheMonth = numberOfDaysLeftInYears;
-                    return;
-                case 2: // March
-                    if (numberOfDaysLeftInYears > 31)
-                    {
-                        numberOfDaysLeftInYears -= 31;
-                        continue;
-                    }
-                    dayOfTheMonth = numberOfDaysLeftInYears;
-                    return;
-                case 3: // April
-                    if (numberOfDaysLeftInYears > 30)
-                    {
-                        numberOfDaysLeftInYears -= 30;
-                        continue;
-                    }
-                    dayOfTheMonth = numberOfDaysLeftInYears;
-                    return;
-                case 4: // May
-                    if (numberOfDaysLeftInYears > 31)
-                    {
-                        numberOfDaysLeftInYears -= 31;
-                        continue;
-                    }
-                    dayOfTheMonth = numberOfDaysLeftInYears;
-                    return;
-                case 5: // June
-                    if (numberOfDaysLeftInYears > 30)
-                    {
-                        numberOfDaysLeftInYears -= 30;
-                        continue;
-                    }
-                    dayOfTheMonth = numberOfDaysLeftInYears;
-                    return;
-                case 6: // July
-                    if (numberOfDaysLeftInYears > 31)
-                    {
-                        numberOfDaysLeftInYears -= 31;
-                        continue;
-                    }
-                    dayOfTheMonth = numberOfDaysLeftInYears;
-                    return;
-                case 7: // August
-                    if (numberOfDaysLeftInYears > 31)
-                    {
-                        numberOfDaysLeftInYears -= 31;
-                        continue;
-                    }
-                    dayOfTheMonth = numberOfDaysLeftInYears;
-                    return;
-                case 8: // September
-                    if (numberOfDaysLeftInYears > 30)
-                    {
-                        numberOfDaysLeftInYears -= 30;
-                        continue;
-                    }
-                    dayOfTheMonth = numberOfDaysLeftInYears;
-                    return;
-                case 9: // October
-                    if (numberOfDaysLeftInYears > 31)
-                    {
-                        numberOfDaysLeftInYears -= 31;
-                        continue;
-                    }
-                    dayOfTheMonth = numberOfDaysLeftInYears;
-                    return;
-                case 10: // November
-                    if (numberOfDaysLeftInYears > 30)
-                    {
-                        numberOfDaysLeftInYears -= 30;
-                        continue;
-                    }
-                    dayOfTheMonth = numberOfDaysLeftInYears;
-                    return;
-                case 11: // December
-                    if (numberOfDaysLeftInYears > 31)
-                    {
-                        numberOfDaysLeftInYears -= 31;
-                        continue;
-                    }
-                    dayOfTheMonth = numberOfDaysLeftInYears;
-                    return;
-            }
-        }
-        dayOfTheMonth = -1;
+        return IntPtr.Zero;
     }
 
+    public static IEnumerable<IntPtr> GetAllWindowHandlesForProcess(int processId)
+    {
+        List<IntPtr> handles = new List<IntPtr>();
+
+        EnumWindows((hWnd, lParam) =>
+        {
+            GetWindowThreadProcessId(hWnd, out uint pid);
+
+            if (pid == (uint)processId)
+            {
+                handles.Add(hWnd);
+            }
+
+            return true;
+        }, IntPtr.Zero);
+
+        return handles;
+    }
+#endif
+    
 }
