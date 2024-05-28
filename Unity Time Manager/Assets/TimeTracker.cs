@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading.Tasks;
 
 using Unity.EditorCoroutines.Editor;
 
@@ -12,9 +13,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 
 using UnityEngine;
-
-using Debug = UnityEngine.Debug;
-//  
+// 
 [InitializeOnLoad]
 public class TimeTracker
 {
@@ -170,27 +169,27 @@ public class TimeTracker
             string units = "";
             if (years != 0)
             {
-                resalt += "" + years + ":" + days + ":" + hours + ":" + minute + ":" + seconds;
+                resalt += years.ToString() + ":" + days.ToString() + ":" + hours.ToString("D2") + ":" + minute.ToString("D2") + ":" + seconds.ToString("D2");
                 units += "Y:D:H:M:S";
             }
             else if (days != 0)
             {
-                resalt += "" + days + ":" + hours + ":" + minute + ":" + seconds;
+                resalt += days.ToString() + ":" + hours.ToString("D2") + ":" + minute.ToString("D2") + ":" + seconds.ToString("D2");
                 units += "D:H:M:S";
             }
             else if(hours != 0)
             {
-                resalt += "" + hours + ":" + minute + ":" + seconds;
+                resalt += hours.ToString() + ":" + minute.ToString("D2") + ":" + seconds.ToString("D2");
                 units += "H:M:S";
             }
             else if(minute != 0)
             {
-                resalt += "" + minute + ":" + seconds;
+                resalt += minute.ToString() + ":" + seconds.ToString("D2");
                 units += "M:S";
             }
             else if(seconds != 0)
             {
-                resalt += "" + seconds;
+                resalt += seconds.ToString("D1");
                 units += "S";
             }
             resalt += " " + units;
@@ -259,7 +258,7 @@ public class TimeTracker
             {
                 uint date = 0;
                 date |= (uint)(Day - 1) << 0;// 9 bits. day is Days - 1 in Year. I want 0-(Days in Year - 1)
-                date |= (uint)(Year - 1) << 9;     // 16 bits. day is - 1. I want 0-65535 (max number of Unsinged short)
+                date |= (uint)(Year - 1) << 9;// 16 bits. day is - 1. I want 0-65535 (max number of Unsinged short)
                 return date;
             }
             set
@@ -268,7 +267,7 @@ public class TimeTracker
                 int daysMask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8);
                 int yearMask = ~daysMask & ~((1 << 25) | (1 << 26) | (1 << 27) | (1 << 28) | (1 << 29) | (1 << 30) | (1 << 31));
 
-                Day = Convert.ToByte(value & daysMask);
+                Day = Convert.ToInt16(value & daysMask);
                 Year = Convert.ToUInt16((value & yearMask) >> 9);
             }
         }
@@ -765,12 +764,16 @@ public class TimeTracker
         AssemblyReloadEvents.beforeAssemblyReload += () => Save();
         EditorApplication.wantsToQuit += OnEditorClose;
 
-        unityApplicationHandle = GetUnityWindowHandle();
-        
+
+        Task.Run(async () =>
+        {
+            unityApplicationHandle = await GetUnityWindowHandle();
+        });
 
 
         startSessionDateTime = DateTime.Now;
-        lastDatetime = DateTime.Now;
+        lastDatetime = startSessionDateTime;
+        currentDatetime = startSessionDateTime;
 
         elapsedTime = new Time48Bit();
         elapsedSessionTime = new Time48Bit();
@@ -784,7 +787,7 @@ public class TimeTracker
             saveData = Load();
             DateTime88Bit lastUsedTime = DateTime88Bit.FromJson(saveData.lastUsedTime);
             totalElapsedTime = (Time48Bit)saveData.totalElapsedTime;
-            if (DateTime.Now.Date == ((DateTime)lastUsedTime).Date)
+            if (((DateTime)lastUsedTime).Date == DateTime.Now.Date)
             {
                 todaysElapsedTime = (Time48Bit)saveData.todaysElapsedTime;
                 DateTime88Bit differenceBetweenLastSessionAndThisOne = startSessionDateTime - lastUsedTime;
@@ -797,12 +800,6 @@ public class TimeTracker
                 }
             }
         }
-        else
-        {
-            saveData.startTime = ((DateTime88Bit)startSessionDateTime).ToJson();
-            saveData.lastUsedTime = ((DateTime88Bit)startSessionDateTime).ToJson();
-        }
-
 
         Save();
 
@@ -846,7 +843,6 @@ public class TimeTracker
     private void UpdateTitle(string elapsedSessionTime, string todaysElapsedTime, string totalElapsedTime)
     {
         // TO DO!!! Unity overrides what I have when the scene is switch from is dirty to is not dirty and the other way around.
-
         SetWindowText(unityApplicationHandle, BaseTitleName + " Elapsed Session Time: " + elapsedSessionTime + " Todays Elapsed Time: " + todaysElapsedTime + " Total Elapsed Time: " + totalElapsedTime); 
     }
 
@@ -858,7 +854,7 @@ public class TimeTracker
         saveData.totalElapsedTime = (Time32Bit)totalElapsedTime;
         saveData.lastUsedTime = ((DateTime88Bit)currentDatetime).ToJson();
         saveData.isFirstOpen = isFirstOpen;
-
+        // 
         File.WriteAllText(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME, JsonUtility.ToJson(saveData));
     }
 
@@ -867,25 +863,28 @@ public class TimeTracker
         string fileData = File.ReadAllText(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME);
         return JsonUtility.FromJson<SaveData>(fileData);
     }
-#if PLATFORM_STANDALONE_WIN
-    private static IntPtr GetUnityWindowHandle()
+
+    private static async Task<IntPtr> GetUnityWindowHandle()
     {
-        // TO DO: Bug at startup. The window has not opened so can not rename it...
         Process process = Process.GetCurrentProcess();
 
 
-        IEnumerable <IntPtr> windowHandles = GetAllWindowHandlesForProcess(process.Id); 
-
-        // Print each handle.
-        foreach (IntPtr handle in windowHandles)
+        for (int i = 0; i < 60; i++)
         {
-            StringBuilder buffer = new StringBuilder(256);
-            GetWindowText(handle, buffer, buffer.Capacity);
-            if (buffer.ToString().Contains("Unity"))
+            IEnumerable <IntPtr> windowHandles = GetAllWindowHandlesForProcess(process.Id);
+            // Print each handle.
+            foreach (IntPtr handle in windowHandles)
             {
-                return handle;
+                StringBuilder buffer = new StringBuilder(256);
+                GetWindowText(handle, buffer, buffer.Capacity);
+                if (buffer.ToString().Contains("Unity " + Application.unityVersion))
+                {
+                    return handle;
+                }
             }
+            await Task.Delay(1000);
         }
+
 
         return IntPtr.Zero;
     }
@@ -908,6 +907,6 @@ public class TimeTracker
 
         return handles;
     }
-#endif
+
     
 }

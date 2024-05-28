@@ -1,1 +1,1 @@
-{"startTime":"{\"Date\":1035923,\"TimeOfDay\":124310731}","elapsedSessionTime":{"time":741},"todaysElapsedTime":{"time":1709},"totalElapsedTime":{"time":3688},"lastUsedTime":"{\"Date\":1035923,\"TimeOfDay\":93398219}","isFirstOpen":true}
+{"startTime":"{\"Date\":1035924,\"TimeOfDay\":71252044}","elapsedSessionTime":{"time":231},"todaysElapsedTime":{"time":12751},"totalElapsedTime":{"time":57549},"lastUsedTime":"{\"Date\":1035924,\"TimeOfDay\":105101484}","isFirstOpen":false}
