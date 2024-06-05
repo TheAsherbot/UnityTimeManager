@@ -3,6 +3,8 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
@@ -13,7 +15,8 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 
 using UnityEngine;
-// 
+using UnityEngine.SceneManagement;
+
 [InitializeOnLoad]
 public class TimeTracker
 {
@@ -699,8 +702,16 @@ public class TimeTracker
     [Serializable]
     private struct SaveData
     {
+        [Serializable]
+        public struct SceneTime
+        {
+            public string sceneName;
+            public Time32Bit elaspedScenetime;
+        }
+
         public string startTime;
-        public Time32Bit elapsedSessionTime;
+        public SceneTime[] sceneTimes;
+        public Time32Bit elapsedSessionTime; 
         public Time32Bit todaysElapsedTime;
         public Time32Bit totalElapsedTime;
         public string lastUsedTime;
@@ -715,7 +726,6 @@ public class TimeTracker
     }
 
 
-#if PLATFORM_STANDALONE_WIN
     private delegate bool EnumWindowProc(IntPtr hwnd, IntPtr lParam);
 
     [DllImport("user32.dll")]
@@ -726,11 +736,8 @@ public class TimeTracker
     // Import Functions  following.
     [DllImport("user32.dll", EntryPoint = "SetWindowText")]
     public static extern bool SetWindowText(IntPtr hwnd, string lpString);
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
-#endif
 
 
 
@@ -740,13 +747,12 @@ public class TimeTracker
     {
         get
         {
-            return Application.productName + " - " + EditorSceneManager.GetActiveScene().name + " - Windows, Mac, Linux - Unity " + Application.unityVersion + (EditorSceneManager.GetActiveScene().isDirty ? '*' : "") + " <DX11>";
+            return Application.productName + " - " + UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene().name + " - Windows, Mac, Linux - Unity " + Application.unityVersion + (UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene().isDirty ? '*' : "") + " <DX11>";
         }
     }
     private IntPtr unityApplicationHandle;
 
-
-
+    private string currentUserName;
 
     private DateTime startSessionDateTime;
     private DateTime lastDatetime;
@@ -757,14 +763,24 @@ public class TimeTracker
     private Time48Bit todaysElapsedTime;
     private Time48Bit totalElapsedTime;
 
+    private List<SaveData.SceneTime> sceneTimeList; 
+
     private SaveData saveData;
+
+
+    private static Dictionary<string, string> sceneNames = new Dictionary<string, string>();
 
     private TimeTracker()
     {
-        AssemblyReloadEvents.beforeAssemblyReload += () => Save();
+        AssemblyReloadEvents.beforeAssemblyReload += () =>
+        {
+            Save();
+        };
         EditorApplication.wantsToQuit += OnEditorClose;
 
+        EditorSceneManager.OnSceneRenamed += EditorSceneManager_OnSceneRenamed;
 
+        
         Task.Run(async () =>
         {
             unityApplicationHandle = await GetUnityWindowHandle();
@@ -775,18 +791,21 @@ public class TimeTracker
         lastDatetime = startSessionDateTime;
         currentDatetime = startSessionDateTime;
 
-        elapsedTime = new Time48Bit();
         elapsedSessionTime = new Time48Bit();
         todaysElapsedTime = new Time48Bit();
         totalElapsedTime = new Time48Bit();
+
 
         saveData = new SaveData();
         // Try getting data
         if (File.Exists(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME))
         {
             saveData = Load();
-            DateTime88Bit lastUsedTime = DateTime88Bit.FromJson(saveData.lastUsedTime);
+
             totalElapsedTime = (Time48Bit)saveData.totalElapsedTime;
+            sceneTimeList = saveData.sceneTimes.ToList();
+
+            DateTime88Bit lastUsedTime = DateTime88Bit.FromJson(saveData.lastUsedTime);
             if (((DateTime)lastUsedTime).Date == DateTime.Now.Date)
             {
                 todaysElapsedTime = (Time48Bit)saveData.todaysElapsedTime;
@@ -804,6 +823,27 @@ public class TimeTracker
         Save();
 
         EditorCoroutineUtility.StartCoroutineOwnerless(UpdateLoop());
+
+
+
+
+        Assembly assembly = Assembly.GetAssembly(typeof(EditorWindow));
+        object unityConnect = assembly.CreateInstance("UnityEditor.Connect.UnityConnect", false, BindingFlags.NonPublic | BindingFlags.Instance, null, null, null, null);
+        unityConnect = unityConnect.GetType().GetProperty("instance").GetValue(unityConnect);
+        object userInfo = unityConnect.GetType().GetProperty("userInfo").GetValue(unityConnect);
+        currentUserName = userInfo.GetType().GetProperty("displayName").GetValue(userInfo).ToString();
+
+    }
+
+    private void EditorSceneManager_OnSceneRenamed(Scene renamedScene, string oldName, string newName)
+    {
+        for (int i = 0; i < saveData.sceneTimes.Length; i++)
+        {
+            if (saveData.sceneTimes[i].sceneName == oldName)
+            {
+                saveData.sceneTimes[i].sceneName = newName;
+            }
+        }
     }
 
     private IEnumerator UpdateLoop()
@@ -849,12 +889,14 @@ public class TimeTracker
     private void Save(bool isFirstOpen = false)
     {
         saveData.startTime = ((DateTime88Bit)startSessionDateTime).ToJson();
+        saveData.sceneTimes = sceneTimeList.ToArray();
         saveData.elapsedSessionTime = (Time32Bit)elapsedSessionTime;
         saveData.todaysElapsedTime = (Time32Bit)todaysElapsedTime;
         saveData.totalElapsedTime = (Time32Bit)totalElapsedTime;
         saveData.lastUsedTime = ((DateTime88Bit)currentDatetime).ToJson();
         saveData.isFirstOpen = isFirstOpen;
-        // 
+
+        
         File.WriteAllText(TIME_SPENT_FILE_PATH + TIME_SPENT_FILE_NAME, JsonUtility.ToJson(saveData));
     }
 
@@ -867,7 +909,6 @@ public class TimeTracker
     private static async Task<IntPtr> GetUnityWindowHandle()
     {
         Process process = Process.GetCurrentProcess();
-
 
         for (int i = 0; i < 60; i++)
         {
@@ -884,7 +925,6 @@ public class TimeTracker
             }
             await Task.Delay(1000);
         }
-
 
         return IntPtr.Zero;
     }
