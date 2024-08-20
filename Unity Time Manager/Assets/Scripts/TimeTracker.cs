@@ -28,8 +28,6 @@ namespace TheAshBotAssets.TimeTracker
 
 
 
-
-
         private static readonly string TIME_SPENT_FILE_PATH = Application.dataPath + '/';
         private static readonly string TIME_SPENT_FILE_NAME = "TimeSpent.txt";
 
@@ -99,9 +97,7 @@ namespace TheAshBotAssets.TimeTracker
 
             for (int i = 0; i < allScenesPath.Length; i++)
             {
-                Debug.Log(allScenesPath[i]);
                 allScenes[i] = EditorSceneManager.GetSceneByName(GetFileNameFromPath(allScenesPath[i]));
-                Debug.Log(allScenes[i].name);
             }
 
             saveData = new SaveData();
@@ -160,7 +156,6 @@ namespace TheAshBotAssets.TimeTracker
 
                         for (int sceneTimeIndex = 0; sceneTimeIndex < sceneTimeList.Count; sceneTimeIndex++)
                         {
-                            Debug.Log(scene.name + ", " + sceneTimeList[sceneTimeIndex].sceneName);
                             if (scene.name == sceneTimeList[sceneTimeIndex].sceneName)
                             {
                                 isSceneIncluded = true;
@@ -182,7 +177,6 @@ namespace TheAshBotAssets.TimeTracker
                         }
                     }
                     
-
 
 
                     totalUserElapsedTime = (Time48Bit)saveData.userDataArray[currentUserIndex].totalUserElapsedTime;
