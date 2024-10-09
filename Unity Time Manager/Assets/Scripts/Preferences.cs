@@ -1,45 +1,28 @@
 using System;
-
-using UnityEditor;
-using UnityEditor.PackageManager.UI;
+using System.IO;
 
 using UnityEngine;
 
 namespace TheAshBotAssets.TimeTracker
 {
-    public struct Preferences
+    public static class Preferences
     {
-        
 
-        private static bool hasInstance = false;
-        private static Preferences instance; 
-        public static Preferences Instance 
+        private static string PATH
         {
             get
             {
-                // Must creat first instance
-                if (!hasInstance)
-                {
-
-                    hasInstance = true;
-                }
-                return instance;
+                return Application.consoleLogPath.Remove(Application.consoleLogPath.Length - 17) + "Assets/TheAsherBots Assets/Time Tracker";
             }
         }
-
-
-
-        private static void Save()
+        private static readonly string FILE_NAME = "Preferences";
+        private static string FULL_PATH
         {
-
+            get
+            {
+                return PATH + '/' + FILE_NAME;
+            }
         }
-        private static bool Load(out Preferences preferences)
-        {
-            preferences = default(Preferences);
-            return false;
-            // UnityEditor.PackageManager.Client.
-        }
-
 
 
         [Flags]
@@ -54,14 +37,50 @@ namespace TheAshBotAssets.TimeTracker
             TotalSceneElaspedTime = 64,
             TotalElaspedTime = 128,
         }
+        [Serializable]
+        public struct SaveData
+        {
+            public TimesShown timesShown;
+            public bool allowIndividualTracking;
+
+            public static bool operator ==(SaveData left, SaveData right)
+            {
+                return left.timesShown == right.timesShown && left.allowIndividualTracking == right.allowIndividualTracking;
+            }
+            public static bool operator !=(SaveData left, SaveData right)
+            {
+                return !(left.timesShown == right.timesShown && left.allowIndividualTracking == right.allowIndividualTracking);
+            }
+        }
+
+        public static SaveData saveData;
+        public static bool isPaused;
 
 
-        
-        public TimesShown timesShown;
-        public bool allowIndividualTracking;
-        public bool isPaused;
 
+        public static void Save()
+        {
+            if (!File.Exists(PATH))
+            {
+                Directory.CreateDirectory(PATH);
+            }
 
+            File.WriteAllText(FULL_PATH, JsonUtility.ToJson(saveData));
+
+            Debug.Log("SAVE!");
+        }
+        public static bool Load(out SaveData preferences)
+        {
+            if (!File.Exists(FULL_PATH))
+            {
+                preferences = default(SaveData);
+                return false;
+            }
+
+            preferences = JsonUtility.FromJson<SaveData>(File.ReadAllText(FULL_PATH));
+            saveData = preferences;
+            return true;
+        }
 
     }
 }

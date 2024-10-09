@@ -1,41 +1,24 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 
-using Unity.VisualScripting;
+using TheAshBotAssets.TimeTracker;
 
 using UnityEditor;
 
 using UnityEngine;
+using UnityEngine.UIElements;
 
 public class NewBehaviourScript : MonoBehaviour
 {
     [MenuItem("Example/Get Package Cache Location")]
     static void GetCacheLocation()
     {
-        GetAssetCacheLocation();
 
-/*
-        // Load the assembly containing your scripts
-        Assembly assembly = Assembly.GetAssembly(typeof(Editor));
+        Debug.Log(Application.consoleLogPath.Remove(Application.consoleLogPath.Length - 17) + "Assets/TheAsherBots Assets/Time Tracker/Preferences");
 
-        // Iterate through all types in the assembly
-        foreach (Type type in assembly.GetTypes())
-        {
-            // Iterate through all methods in the type
-            foreach (MethodInfo method in type.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
-            {
-                // Check if the method has the SettingsProvider attribute
-                var attributes = method.GetCustomAttributes(typeof(SettingsProviderAttribute), false);
-                if (attributes.Length > 0)
-                {
-                    Debug.Log($"Found SettingsProvider in method: {method.Name} of type: {type.AssemblyQualifiedName}");
-                }
-            }
-        }
-*/
     }
 
     public static string GetAssetCacheLocation()
@@ -56,6 +39,11 @@ public class NewBehaviourScript : MonoBehaviour
         // Utills.ReflectType(packageManagerPrefsType, BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
 
         /////////////////////////////////
+
+        PropertyInfo propertyInfo = packageManagerPrefsType.GetProperty("k_ChangeLocation", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        Debug.Log("propertyInfo: " + propertyInfo);
+        // Debug.Log("propertyInfo value: " + propertyInfo.GetValue(null));
+
 
         Test();
 
@@ -136,6 +124,45 @@ public class NewBehaviourScript : MonoBehaviour
 
         return null;
     }
+
+    public static void GetAssetCacheLocationIfPreferencesIsOpenToAssetTab()
+    {
+
+        // Open the Preferences window
+        Assembly asm = Assembly.GetAssembly(typeof(EditorWindow));
+        Type preferencesWindowType = asm.GetType("UnityEditor.SettingsWindow");
+
+        EditorApplication.delayCall += () =>
+        {
+            EditorWindow preferencesWindow;
+            // Attempt to read some information from the Preferences window
+
+            MethodInfo methodInfo = typeof(EditorWindow).GetMethod("HasOpenInstances", BindingFlags.Public | BindingFlags.Static);
+            MethodInfo genericMethod = methodInfo.MakeGenericMethod(preferencesWindowType);
+            if ((bool)genericMethod.Invoke(null, null))
+            {
+                preferencesWindow = EditorWindow.GetWindow(preferencesWindowType);
+
+                VisualElement element = preferencesWindow.rootVisualElement.Query<VisualElement>("assetsCachePath").ToList()[0];
+
+                Debug.Log(((UnityEngine.UIElements.Label)element).text);
+            }
+            else
+            {
+                MethodInfo showPreferencesWindowMethod = preferencesWindowType.GetMethod("OpenUserPreferences", BindingFlags.NonPublic | BindingFlags.Static);
+                showPreferencesWindowMethod.Invoke(null, null);
+
+                preferencesWindow = EditorWindow.GetWindow(preferencesWindowType);
+
+                VisualElement element = preferencesWindow.rootVisualElement.Query<VisualElement>("assetsCachePath").ToList()[0];
+
+                Debug.Log(((UnityEngine.UIElements.Label)element).text);
+
+                preferencesWindow.Close();
+            }
+        };
+    }
+
 }
 
 
